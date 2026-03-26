@@ -4,8 +4,9 @@ import traci
 import asyncio
 import json
 import websockets
-from typing import Any, cast
+import subprocess
 
+# Configuration de l'environnement SUMO
 if 'SUMO_HOME' in os.environ:
     sys.path.append(os.path.join(os.environ['SUMO_HOME'], 'tools'))
 else:
@@ -14,82 +15,127 @@ else:
 async def run_sumo_logic(websocket):
     print("🌐 Dashboard connecté")
     
-    # Détection : Docker crée souvent un fichier /.dockerenv à la racine
-    is_docker = os.path.exists('/.dockerenv')
+    # --- VARIABLES D'ÉTAT ---
+    current_scenario = "normal"
+    restart_needed = True  # Pour lancer SUMO dès la connexion
     
-    # Choix de l'exécutable
-    sumo_binary = "sumo" if is_docker else "sumo-gui"
-    print(f"🛠️ Lancement de {sumo_binary}...")
+    def start_sumo(scenario):
+        """Lance ou relance SUMO avec le bon scénario"""
+        # 1. FERMER SUMO PROPREMENT
+        try:
+            print("🛑 Fermeture de SUMO...")
+            traci.close()
+            import time
+            time.sleep(1) # Petit délai pour que Windows libère les fichiers .xml
+        except:
+            pass
+        
+        # 2. RÉGÉNÉRER LES FICHIERS
+        print(f"🔄 Régénération pour le scénario : {scenario}")
+        try:
+            subprocess.run([sys.executable, "generer_simulation.py", scenario], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Erreur lors de la génération : {e}")
+            return []
 
-    sumoCmd = [sumo_binary, "-c", "simulation.sumocfg"]
-    
-    # Si on est dans Docker, on ajoute des options pour éviter les erreurs d'affichage
-    if is_docker:
-        sumoCmd.extend(["--no-warnings", "--no-step-log"])
+        # 3. DÉMARRER SUMO
+        is_docker = os.path.exists('/.dockerenv')
+        sumo_binary = "sumo" if is_docker else "sumo-gui"
+        
+        # Astuce : on ajoute --no-internal-links pour éviter d'autres verrous
+        traci.start([sumo_binary, "-c", "simulation.sumocfg", "--start", "--quit-on-end"])
+        
+        return traci.trafficlight.getIDList()
 
-    traci.start(sumoCmd)
-    # ... reste du code ...
-    
-    traffic_lights = traci.trafficlight.getIDList()
+    traffic_lights = []
     step = 0
 
     try:
         while True:
-            # On récupère la valeur brute
-            raw_expected = traci.simulation.getMinExpectedNumber()
-            
-            # On force la conversion en entier pour rassurer Pylance
-            # Si c'est un tuple par erreur, on prend le premier élément [0]
-            if isinstance(raw_expected, tuple):
-                expected = int(raw_expected[0])
-            else:
-                expected = int(raw_expected)
+            # 1. GESTION DU REDÉMARRAGE
+            if restart_needed:
+                traffic_lights = start_sumo(current_scenario)
+                step = 0
+                restart_needed = False
 
-            if expected <= 0:
+            # 2. GESTION DES MESSAGES (Non-bloquant)
+            # On vérifie si le Dashboard a envoyé un nouveau scénario
+            try:
+                # On attend 0.01s max pour ne pas bloquer la simulation
+                message = await asyncio.wait_for(websocket.recv(), timeout=0.01)
+                data = json.loads(message)
+                
+                if data.get("action") == "trigger_scenario":
+                    current_scenario = data.get("value") or data.get("scenario")
+                    print(f"📡 Changement vers : {current_scenario}")
+                    restart_needed = True
+                    continue # On repart au début de la boucle pour redémarrer
+            except asyncio.TimeoutError:
+                pass # Pas de message, on continue la simulation
+            except websockets.exceptions.ConnectionClosed:
                 break
-                
-            traci.simulationStep()
-            
-            stats = {}
-            for tls_id in traffic_lights:
-                # 1. Identifier toutes les voies qui arrivent au carrefour
-                controlled_lanes = traci.trafficlight.getControlledLanes(tls_id)
-                lanes = list(set(controlled_lanes))
-                
-                carrefour_data = {
-                    "total_attente": 0,
-                    "bras": {}, # Détails par voie
-                    "phase": int(traci.trafficlight.getPhase(tls_id)) # type: ignore
-                }
 
-                for l in lanes:
-                    # 2. Extraire le nombre de voitures arrêtées sur ce bras spécifique
-                    nb_stop = traci.lane.getLastStepHaltingNumber(l) # type: ignore
-                    
-                    # On convertit explicitement pour éviter les erreurs Pylance
-                    count = int(nb_stop) if isinstance(nb_stop, (int, float)) else 0
-                    
-                    carrefour_data["bras"][l] = count
-                    carrefour_data["total_attente"] += count
+            # 3. LOGIQUE DE SIMULATION
+            try:
+                traci.simulationStep()
                 
-                stats[tls_id] = carrefour_data
+                # Collecte des données
+                stats = {}
+                for tls_id in traffic_lights:
+                    # On s'assure que tls_id est bien une string
+                    controlled_lanes = traci.trafficlight.getControlledLanes(str(tls_id))
+                    lanes = list(set(controlled_lanes))
+                    
+                    # On récupère la phase et on force le type int
+                    current_phase = traci.trafficlight.getPhase(str(tls_id))
+                    
+                    carrefour_data = {
+                        "total_attente": 0,
+                        "bras": {},
+                        "phase": int(current_phase) if not isinstance(current_phase, tuple) else int(current_phase[0])
+                    }
 
-            # 3. Envoi des données enrichies au WebSocket
-            await websocket.send(json.dumps({"step": step, "data": stats}))
-            
-            step += 1
-            await asyncio.sleep(0.01)
-            
-    except websockets.exceptions.ConnectionClosed:
-        print("🔴 Dashboard fermé")
+                    for l in lanes:
+                        # On force la conversion pour éviter l'erreur Pylance sur 'nb_stop'
+                        nb_stop = traci.lane.getLastStepHaltingNumber(str(l))
+                        
+                        # Sécurité : si SUMO renvoie un tuple au lieu d'un nombre
+                        if isinstance(nb_stop, tuple):
+                            count = int(nb_stop[0])
+                        else:
+                            count = int(nb_stop)
+                            
+                        carrefour_data["bras"][str(l)] = count
+                        carrefour_data["total_attente"] += count
+                    
+                    stats[str(tls_id)] = carrefour_data
+
+                # Envoi au Dashboard
+                await websocket.send(json.dumps({
+                    "step": step, 
+                    "data": stats, 
+                    "scenario": current_scenario
+                }))
+                
+                step += 1
+                await asyncio.sleep(0.05)
+
+            except Exception as e:
+                # Si traci.exceptions n'est pas reconnu, on attrape l'erreur générale
+                if "FatalTraCIError" in str(e) or "connection closed" in str(e).lower():
+                    print("🏁 Fin de simulation ou SUMO fermé.")
+                    await asyncio.sleep(1)
+                else:
+                    print(f"⚠️ Erreur simulation : {e}")
+                    await asyncio.sleep(1)
+
     finally:
-        traci.close()
+        try: traci.close()
+        except: pass
 
 async def main():
-    # Détection si on est dans Docker
-    is_docker = os.path.exists('/.dockerenv')
-    host = "0.0.0.0" if is_docker else "localhost"
-    
+    # Écoute sur 0.0.0.0 pour Docker, localhost pour Windows
+    host = "0.0.0.0" if os.path.exists('/.dockerenv') else "localhost"
     print(f"🚀 Serveur prêt sur ws://{host}:8765")
     async with websockets.serve(run_sumo_logic, host, 8765, ping_interval=None):
         await asyncio.Future()
@@ -98,4 +144,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        print("🛑 Serveur arrêté.")

@@ -4,8 +4,4 @@
         <net-file value="reseau_12_carrefours.net.xml"/>
         <route-files value="trafic.rou.xml"/>
     </input>
-    <time>
-        <begin value="0"/>
-        <end value="3600"/>
-    </time>
 </configuration>

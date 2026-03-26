@@ -40,6 +40,15 @@
             font-size: 0.9em;
             color: #888;
         }
+    .btn-group button {
+        cursor: pointer;
+        border: none;
+        border-radius: 5px;
+        transition: 0.3s;
+        margin: 5px;
+    }
+    .btn-group button:hover { opacity: 0.8; transform: scale(1.05); }
+    #status-msg { font-weight: bold; color: #ff9800; }
     </style>
 </head>
 <body>
@@ -49,6 +58,16 @@
     <div class="status-container">
         Statut : <span id="status" class="disconnected">Déconnecté (En attente du script Python)</span>
     </div>
+
+    <div class="status-container">
+    <h3>🧪 Configuration du Scénario</h3>
+    <div class="btn-group">
+        <button onclick="setScenario('normal')" style="background: #4caf50; color: white;">🍃 Normal</button>
+        <button onclick="setScenario('pic')" style="background: #f44336; color: white;">🔥 Heure de Pic</button>
+        <button onclick="setScenario('incident')" style="background: #ff9800; color: white;">⚠️ Incident</button>
+    </div>
+    <p>Statut simulation : <span id="sim-status">Prêt</span></p>
+</div>
 
     <div class="chart-container">
         <canvas id="trafficChart"></canvas>
@@ -145,6 +164,20 @@
         socket.onerror = function(error) {
             console.error(`Erreur WebSocket : ${error.message}`);
         };
+
+     function setScenario(type) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        // On envoie la commande au Python via le WebSocket
+        socket.send(JSON.stringify({
+            "action": "trigger_scenario",
+            "value": type
+        }));
+        document.getElementById('sim-status').innerText = "Génération " + type.toUpperCase() + "...";
+        console.log("📡 Scénario envoyé au serveur : " + type);
+    } else {
+        alert("Serveur non connecté. Lancez le Docker/Python d'abord.");
+    }
+}
     </script>
 </body>
 </html>

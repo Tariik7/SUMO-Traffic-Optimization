@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUMO Traffic Monitor - 12 Carrefours</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-top: 20px; color: #00e676; }
+        .status-container {
+            margin-bottom: 20px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            background: #1e1e1e;
+            border: 1px solid #333;
+        }
+        #status { font-weight: bold; }
+        .connected { color: #00e676; }
+        .disconnected { color: #ff5252; }
+        
+        .chart-container {
+            width: 90%;
+            max-width: 1000px;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .info {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📊 Dashboard Trafic Temps Réel</h1>
+    
+    <div class="status-container">
+        Statut : <span id="status" class="disconnected">Déconnecté (En attente du script Python)</span>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="trafficChart"></canvas>
+    </div>
+
+    <div class="info">
+        Note : La simulation SUMO démarre automatiquement dès que cette page est ouverte.
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        
+        // Initialisation du Graphique
+        const trafficChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [], // Les IDs des carrefours (0, 1, 2...)
+                datasets: [{
+                    label: 'Véhicules arrêtés aux feux',
+                    data: [],
+                    backgroundColor: 'rgba(0, 230, 118, 0.6)',
+                    borderColor: 'rgba(0, 230, 118, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        suggestedMax: 10,
+                        grid: { color: '#333' },
+                        ticks: { color: '#aaa' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#aaa' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                },
+                animation: false // Désactivé pour fluidité temps réel
+            }
+        });
+
+        // Connexion WebSocket
+        const socket = new WebSocket('ws://localhost:8765');
+
+        socket.onopen = function(e) {
+            statusEl.innerText = "Connecté - Simulation active";
+            statusEl.className = "connected";
+            console.log("Connexion établie avec le serveur SUMO");
+        };
+
+        socket.onmessage = function(event) {
+            const payload = JSON.parse(event.data);
+            const carrefours = payload.data;
+            
+            let allLabels = [];
+            let allValues = [];
+            let colors = [];
+
+            // Parcourir chaque carrefour
+            Object.keys(carrefours).forEach((tlsId, index) => {
+                const bras = carrefours[tlsId].bras;
+                const phase = carrefours[tlsId].phase;
+
+                // Parcourir chaque bras (voie) de ce carrefour
+                Object.keys(bras).forEach(laneId => {
+                    allLabels.push(laneId); // Nom de la voie (ex: "edge1_0")
+                    allValues.push(bras[laneId]); // Nb de voitures
+                    
+                    // Couleur : Vert si c'est le carrefour actuel est en phase active (simplifié)
+                    // On peut varier les couleurs par carrefour pour mieux voir
+                    colors.push(`hsl(${(index * 360) / 12}, 70%, 50%)`);
+                });
+            });
+
+            // Mise à jour du graphique
+            trafficChart.data.labels = allLabels;
+            trafficChart.data.datasets[0].data = allValues;
+            trafficChart.data.datasets[0].backgroundColor = colors;
+            
+            trafficChart.update('none'); 
+        };
+
+        socket.onclose = function(e) {
+            statusEl.innerText = "Déconnecté - Le serveur est arrêté";
+            statusEl.className = "disconnected";
+        };
+
+        socket.onerror = function(error) {
+            console.error(`Erreur WebSocket : ${error.message}`);
+        };
+    </script>
+</body>
+</html>

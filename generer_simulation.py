@@ -44,13 +44,16 @@ def generer(scenario="normal"):
         '--end', '3600'
     ], check=True)
 
-    # 3. Créer/Vérifier le fichier de config
+    # 3. Créer/Vérifier le fichier de config (REMPLACEZ CETTE PARTIE)
     config_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <input>
         <net-file value="{net_file}"/>
         <route-files value="trafic.rou.xml"/>
     </input>
+    <processing>
+        <time-to-teleport value="-1"/> 
+    </processing>
 </configuration>"""
     with open(cfg_file, "w") as f:
         f.write(config_content)

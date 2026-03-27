@@ -4,4 +4,7 @@
         <net-file value="reseau_12_carrefours.net.xml"/>
         <route-files value="trafic.rou.xml"/>
     </input>
+    <processing>
+        <time-to-teleport value="-1"/> 
+    </processing>
 </configuration>

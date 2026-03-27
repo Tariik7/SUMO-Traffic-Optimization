@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-03-26 12:42:38.136077 by Eclipse SUMO randomTrips.py v1_26_0+0000-fa7df22d7f1
+<!-- generated on 2026-03-27 23:38:17.174439 by Eclipse SUMO randomTrips.py v1_26_0+0000-fa7df22d7f1
 <configuration>
     <net-file value="reseau_12_carrefours.net.xml"/>
     <route-file value="trafic.rou.xml"/>
@@ -9,7 +9,7 @@
 </configuration>
 -->
 
-<!-- generated on 2026-03-26T12:42:37.940614+00:00 by Eclipse SUMO duarouter 1.26.0
+<!-- generated on 2026-03-27T23:38:16.968874+00:00 by Eclipse SUMO duarouter 1.26.0
 <duarouterConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/duarouterConfiguration.xsd">
 
     <input>

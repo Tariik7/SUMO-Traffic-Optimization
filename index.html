@@ -69,6 +69,13 @@
     <p>Statut simulation : <span id="sim-status">Prêt</span></p>
 </div>
 
+    <div class="status-container" style="background: #2a2a2a; border-left: 5px solid #ff5252; text-align: left;">
+    <strong>📜 Journal des événements :</strong>
+    <div id="event-log" style="max-height: 100px; overflow-y: auto; font-family: monospace; font-size: 0.85em; margin-top: 5px;">
+        <p style="color: #888;">> En attente d'événements...</p>
+    </div>
+    </div>
+
     <div class="chart-container">
         <canvas id="trafficChart"></canvas>
     </div>
@@ -125,36 +132,59 @@
         };
 
         socket.onmessage = function(event) {
-            const payload = JSON.parse(event.data);
-            const carrefours = payload.data;
-            
+            try {
+                const payload = JSON.parse(event.data);
+                
+                // 1. GESTION DES NOTIFICATIONS (Accidents)
+                if (payload.type === "notification" || payload.msg) {
+                    const logEl = document.getElementById('event-log');
+                    if (logEl) {
+                        const time = new Date().toLocaleTimeString();
+                        const newEntry = document.createElement('p');
+                        newEntry.style.color = "#ff5252";
+                        newEntry.style.margin = "2px 0";
+                        newEntry.innerHTML = `<strong>[${time}]</strong> ${payload.msg || payload.message}`;
+                        logEl.prepend(newEntry);
+                    }
+                    return; 
+                }
+
+                // 2. GESTION DES STATS (Graphique)
+                if (payload.data) {
+                    mettreAJourGraphique(payload.data);
+                }
+            } catch (e) {
+                console.error("Erreur parsing message:", e);
+            }
+        };
+
+        // Fonction pour mettre à jour Chart.js proprement
+        function mettreAJourGraphique(carrefours) {
             let allLabels = [];
             let allValues = [];
             let colors = [];
 
-            // Parcourir chaque carrefour
+            // Parcourir chaque carrefour reçu du Python
             Object.keys(carrefours).forEach((tlsId, index) => {
                 const bras = carrefours[tlsId].bras;
-                const phase = carrefours[tlsId].phase;
 
-                // Parcourir chaque bras (voie) de ce carrefour
+                // Parcourir chaque voie de ce carrefour
                 Object.keys(bras).forEach(laneId => {
-                    allLabels.push(laneId); // Nom de la voie (ex: "edge1_0")
-                    allValues.push(bras[laneId]); // Nb de voitures
+                    allLabels.push(laneId); // Nom de la voie sur l'axe X
+                    allValues.push(bras[laneId]); // Nombre de véhicules sur l'axe Y
                     
-                    // Couleur : Vert si c'est le carrefour actuel est en phase active (simplifié)
-                    // On peut varier les couleurs par carrefour pour mieux voir
+                    // Générer une couleur différente par carrefour
                     colors.push(`hsl(${(index * 360) / 12}, 70%, 50%)`);
                 });
             });
 
-            // Mise à jour du graphique
+            // Mettre à jour les données du graphique
             trafficChart.data.labels = allLabels;
             trafficChart.data.datasets[0].data = allValues;
             trafficChart.data.datasets[0].backgroundColor = colors;
             
-            trafficChart.update('none'); 
-        };
+            trafficChart.update('none'); // 'none' pour éviter que l'animation clignote à chaque frame
+        }
 
         socket.onclose = function(e) {
             statusEl.innerText = "Déconnecté - Le serveur est arrêté";
